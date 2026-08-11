@@ -1,0 +1,202 @@
+<!doctype html>
+<!--
+  Banc de test hors AR.
+  Verifie l'invariant central de l'app : quel que soit le detourage du PNG,
+  le SUJET mesure exactement `height` metres et ses pieds sont a y = 0.
+  Lance par tests/run.mjs (Playwright), sans camera ni moteur 8th Wall.
+-->
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Test — echelle reelle</title>
+    <link rel="icon" href="data:," />
+    <script src="/external/aframe/aframe.min.js"></script>
+  </head>
+  <body>
+    <a-scene embedded vr-mode-ui="enabled: false" loading-screen="enabled: false">
+      <a-entity id="figure" real-scale-figure></a-entity>
+      <a-entity id="shadow" contact-shadow></a-entity>
+      <a-entity id="reticle" ground-reticle="active: false"></a-entity>
+    </a-scene>
+
+    <script type="module">
+      import '/src/components/real-scale-figure.js'
+      import '/src/components/contact-shadow.js'
+      import '/src/components/ground-reticle.js'
+      import {pickGroundHit, createFloorEstimator} from '/src/lib/hit-test.js'
+      import {setCorrection} from '/src/lib/scale.js'
+
+      const results = []
+      const near = (a, b, eps = 1e-3) => Math.abs(a - b) <= eps
+      const check = (name, ok, got) => results.push({name, ok: !!ok, got})
+
+      const run = async () => {
+        // scale.js demarre avec CONFIG.slamScaleCorrection (une valeur de
+        // terrain, arbitraire du point de vue des tests). Les tests de
+        // filtrage de hit ci-dessous raisonnent en unites 1:1 -> on fixe la
+        // correction a 1 explicitement, pour ne pas dependre de ce que vaut
+        // le defaut de config a un instant donne. Le test 14 la fait varier
+        // volontairement plus bas, et la remet a 1 en sortie.
+        setCorrection(1)
+
+        const figure = document.getElementById('figure')
+
+        await new Promise((resolve) => {
+          figure.addEventListener('figure-ready', resolve, {once: true})
+          figure.setAttribute('real-scale-figure', {
+            src: '/players/placeholder.png',
+            height: 1.8,
+          })
+        })
+
+        const mesh = figure.getObject3D('mesh')
+
+        // 1. Hauteur du sujet = hauteur demandee (marges transparentes exclues).
+        const dims = figure.components['real-scale-figure'].dimensions
+        check('hauteur du sujet = 1.80 m', near(dims.height, 1.8), dims.height)
+
+        // 2. Pieds au sol : bas du decoupage exactement a y = 0.
+        const padBelow = (mesh.scale.y - dims.height) / 2
+        const bottom = mesh.position.y - mesh.scale.y / 2 + padBelow
+        check('semelles a y = 0', near(bottom, 0), bottom)
+
+        // 3. Sommet du crane a exactement 1.80 m.
+        const top = mesh.position.y + mesh.scale.y / 2 - padBelow
+        check('sommet a y = 1.80 m', near(top, 1.8), top)
+
+        // 4. Ratio conserve : le PNG source fait 753 x 2161 px de zone opaque.
+        check(
+          'ratio largeur/hauteur conserve',
+          near(dims.width / dims.height, 753 / 2161, 5e-3),
+          dims.width / dims.height
+        )
+
+        // 5. calibration = 0.9 doit produire un sujet de 1.62 m.
+        await new Promise((resolve) => {
+          figure.addEventListener('figure-ready', resolve, {once: true})
+          figure.setAttribute('real-scale-figure', 'calibration', 0.9)
+        })
+        check(
+          'calibration 0.9 -> 1.62 m',
+          near(figure.components['real-scale-figure'].dimensions.height, 1.62),
+          figure.components['real-scale-figure'].dimensions.height
+        )
+
+        // 5b. correction (biais SLAM) = 0.5 en plus de calibration 0.9 -> 0.81 m.
+        // C'est le mecanisme qui corrige une echelle absolue mal calibree par
+        // le moteur (voir CONFIG.slamScaleCorrection) : il doit se composer
+        // avec `calibration`, pas la remplacer.
+        await new Promise((resolve) => {
+          figure.addEventListener('figure-ready', resolve, {once: true})
+          figure.setAttribute('real-scale-figure', 'correction', 0.5)
+        })
+        check(
+          'correction 0.5 x calibration 0.9 -> 0.81 m',
+          near(figure.components['real-scale-figure'].dimensions.height, 0.81),
+          figure.components['real-scale-figure'].dimensions.height
+        )
+        figure.setAttribute('real-scale-figure', 'correction', 1)
+        figure.setAttribute('real-scale-figure', 'calibration', 1)
+
+        // 6. Selection du hit : la surface detectee prime sur le point de feature.
+        const hits = [
+          {type: 'FEATURE_POINT', position: {x: 0, y: -1.5, z: -2}, distance: 2},
+          {type: 'DETECTED_SURFACE', position: {x: 0, y: -1.6, z: -3}, distance: 3},
+          {type: 'ESTIMATED_SURFACE', position: {x: 0, y: -1.55, z: -2.5}, distance: 2.5},
+        ]
+        check('hit : surface detectee prioritaire', pickGroundHit(hits, 0).type === 'DETECTED_SURFACE')
+
+        // 7. Un hit trop haut par rapport a la camera (mur, plan de travail)
+        //    est rejete : 40 cm sous une camera a 1,60 m n'est pas du sol.
+        check(
+          'hit trop haut sous la camera rejete',
+          pickGroundHit([{type: 'FEATURE_POINT', position: {x: 0, y: 1.2, z: -2}, distance: 2}], 1.6) === null
+        )
+
+        // 8. Un hit trop lointain est rejete.
+        check(
+          'hit a 40 m rejete',
+          pickGroundHit([{type: 'FEATURE_POINT', position: {x: 0, y: -1.6, z: -40}, distance: 40}], 0) === null
+        )
+
+        // 9. Stabilisation du sol : un ecart de quelques cm est aligne.
+        const floor = createFloorEstimator()
+        floor.snap(-1.6)
+        const snapped = floor.snap(-1.68)
+        check('sol stabilise (ecart 8 cm)', Math.abs(snapped - -1.6) < 0.02, snapped)
+
+        // 10. Un vrai changement de niveau est suivi.
+        const jumped = floor.snap(-1.0)
+        check('changement de niveau suivi', near(jumped, -1.0), jumped)
+
+        // 11. Sol connu a -1.60 m : une table a -0.85 m est refusee...
+        const table = [{type: 'DETECTED_SURFACE', position: {x: 0, y: -0.85, z: -2}, distance: 2}]
+        check('table refusee quand le sol est connu', pickGroundHit(table, 0.0, -1.6) === null)
+
+        // ...alors qu'elle serait acceptee sans niveau de sol de reference.
+        check('table acceptee sans sol de reference', pickGroundHit(table, 0.0, null) !== null)
+
+        // 12. findGroundHit : le point exact vise ne rend rien (sol non
+        // texture a ce pixel precis), mais un point du voisinage immediat en
+        // rend un -> ca doit quand meme reussir. C'est le coeur du correctif
+        // pour "je vise le sol mais rien ne se pose jamais" sur les sols peu
+        // texturés/repetitifs (carrelage...).
+        const {findGroundHit} = await import('/src/lib/hit-test.js')
+        window.XR8 = {
+          XrController: {
+            hitTest: (x, y) => {
+              const onTarget = Math.abs(x - 0.53) < 0.001 && Math.abs(y - 0.5) < 0.001
+              return onTarget ? [{type: 'FEATURE_POINT', position: {x: 0, y: -1.6, z: -2}, distance: 2}] : []
+            },
+          },
+        }
+        check('point exact sans hit -> aucun resultat direct', pickGroundHit([], 0) === null)
+        check('findGroundHit trouve un hit dans le voisinage', findGroundHit(0.5, 0.5, 0) !== null)
+        check('findGroundHit : aucun hit nulle part -> null', findGroundHit(0.1, 0.1, 0) === null)
+        delete window.XR8
+
+        // 13. Le reticule subit la MEME correction que le personnage. Sinon il
+        // afficherait une taille fausse au moment precis ou on s'en sert comme
+        // repere pour juger celle du personnage.
+        const reticle = document.getElementById('reticle')
+        const ringScale = () => reticle.getObject3D('mesh').scale.x
+        check('reticule non corrige = 0.45 m', near(ringScale(), 0.45), ringScale())
+        reticle.setAttribute('ground-reticle', 'correction', 0.5)
+        check('reticule corrige x0.5 = 0.225 m', near(ringScale(), 0.225), ringScale())
+        reticle.setAttribute('ground-reticle', 'correction', 1)
+
+        // 14. Les seuils de distance suivent `correction` (src/lib/scale.js) :
+        // sinon un moteur a k=0.5 exigerait 1,2 m reels la ou la config
+        // annonce 0,6 m. Note : `correction` n'est plus DERIVEE d'une lecture
+        // camera (methode abandonnee, voir scale.js) — elle est fixee a la
+        // main par comparaison visuelle. Ce test verifie seulement que la
+        // conversion metres-reels -> unites-de-scene fonctionne, quelle que
+        // soit l'origine du chiffre.
+        const {m: toScene, reticleDiameterFor} = await import('/src/lib/scale.js')
+        setCorrection(0.5)
+        check('seuil 0.6 m reel -> 0.30 unite de scene', near(toScene(0.6), 0.3), toScene(0.6))
+        // Un hit 0,40 unite sous la camera = 0,80 m reel : accepte a k=0.5,
+        // alors qu'il serait rejete si le seuil n'etait pas converti.
+        const lowHit = [{type: 'FEATURE_POINT', position: {x: 0, y: 0.6, z: -2}, distance: 2}]
+        check('hit accepte grace au seuil converti', pickGroundHit(lowHit, 1.0) !== null)
+        setCorrection(1)
+        check('hit rejete sans conversion (k=1)', pickGroundHit(lowHit, 1.0) === null)
+
+        // 15. Le reticule suit la taille du JOUEUR SELECTIONNE, pas une valeur
+        // unique : un joueur de 1,80 m (le repere) donne le diametre de base
+        // 0,45 m ; un joueur deux fois plus grand ou plus petit voit son
+        // reticule mis a l'echelle proportionnellement.
+        check('reticule pour 1.80 m = 0.45 m (base)', near(reticleDiameterFor(1.8), 0.45), reticleDiameterFor(1.8))
+        check('reticule pour 0.90 m = 0.225 m', near(reticleDiameterFor(0.9), 0.225), reticleDiameterFor(0.9))
+        check('reticule pour 3.60 m = 0.90 m', near(reticleDiameterFor(3.6), 0.9), reticleDiameterFor(3.6))
+        check('reticule : hauteur invalide -> repli sur la base', near(reticleDiameterFor(NaN), 0.45), reticleDiameterFor(NaN))
+
+        window.__RESULTS__ = results
+      }
+
+      const scene = document.querySelector('a-scene')
+      if (scene.hasLoaded) run()
+      else scene.addEventListener('loaded', run, {once: true})
+    </script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "kayfo-ar-lifesize",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AR web : poser un joueur en taille reelle (absolute scale 8th Wall) et prendre une photo a cote de lui.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "test": "node tests/run.mjs"
+  },
+  "dependencies": {
+    "@8thwall/coaching-overlay": "^1.0.0",
+    "@8thwall/engine-binary": "^1.0.0",
+    "@8thwall/landing-page": "^1.0.0",
+    "@8thwall/xrextras": "^1.0.0",
+    "aframe": "1.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^1.2.0",
+    "compression": "^1.7.5",
+    "playwright": "^1.49.1",
+    "vite": "^5.4.11",
+    "vite-plugin-static-copy": "^2.2.0"
+  }
+}

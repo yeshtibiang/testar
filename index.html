@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Kayfo AR — Life-size photo</title>
+
+    <!-- viewport-fit=cover + maximum-scale=1 : indispensable en AR web,
+         sinon iOS zoome au double-tap et decale le canvas camera. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#04140c" />
+
+    <!--
+      Attribution requise par la licence du binaire 8th Wall (§1.3).
+      Voir aussi l'en-tete de copyright conserve dans external/xr/xr.js :
+      ne pas le supprimer au minify.
+
+      This product includes the XR Engine software developed by Niantic Spatial, Inc.
+      Copyright (c) 2026 Niantic Spatial, Inc. All rights reserved.
+      License: https://github.com/8thwall/engine/blob/main/LICENSE
+    -->
+
+    <!-- 1. A-Frame en premier : le moteur teste window.AFRAME.version au demarrage. -->
+    <script src="./external/aframe/aframe.min.js" onerror="window.__vendorLoadError='aframe'"></script>
+
+    <!-- 2. Le moteur, en async, avec pre-chargement du chunk SLAM.
+            "slam" = world tracking + absolute scale. Sans lui, XR8.XrController
+            (et donc hitTest) reste null. -->
+    <script src="./external/xr/xr.js" async data-preload-chunks="slam" onerror="window.__vendorLoadError='xr.js'"></script>
+
+    <!-- 3. Helpers : ecran de chargement, erreurs runtime, page "device non
+            supporte", et l'overlay de calibration de l'echelle absolue. -->
+    <script src="./external/xrextras/xrextras.js" onerror="window.__vendorLoadError='xrextras'"></script>
+    <script src="./external/landing-page/landing-page.js" onerror="window.__vendorLoadError='landing-page'"></script>
+    <script src="./external/coaching-overlay/coaching-overlay.js" onerror="window.__vendorLoadError='coaching-overlay'"></script>
+
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./src/styles.css" />
+    <script type="module" src="./src/main.js"></script>
+  </head>
+
+  <body>
+    <!--
+      ===================================================================
+      POURQUOI LA SCENE EST DANS UN <template>
+      ===================================================================
+      Deux contraintes de sequencement, decouvertes en test automatise :
+
+      1. A-Frame instancie les composants d'un <a-scene> des l'analyse du HTML.
+         Notre code est charge en type="module", donc DIFFERE : nos composants
+         (ar-director, real-scale-figure...) ne seraient pas encore enregistres
+         et seraient purement et simplement ignores.
+
+      2. Le composant `coaching-overlay` lit la variable globale XR8 dans son
+         init(). Or xr.js est charge en `async` : si la scene s'initialise
+         avant la fin de son telechargement, on obtient un
+         "ReferenceError: XR8 is not defined" et l'experience ne demarre pas.
+
+      La scene est donc montee par src/main.js, apres l'enregistrement de nos
+      composants ET apres l'evenement `xrloaded`. Les deux courses disparaissent.
+      ===================================================================
+    -->
+    <template id="ar-scene-template">
+      <a-scene
+        xrweb="scale: absolute; disableWorldTracking: false"
+        coaching-overlay="promptText: Move your phone slowly and widely, forward and back; promptColor: #ffffff; animationColor: #ffffff"
+        landing-page
+        xrextras-loading
+        xrextras-runtime-error
+        xrextras-pause-on-hidden
+        ar-director="figure: #figure-root; reticle: #reticle"
+        renderer="colorManagement: true; antialias: true; alpha: true"
+        loading-screen="enabled: false"
+        vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false"
+      >
+        <!-- xrweb pilote entierement la camera : on desactive les controles A-Frame. -->
+        <a-camera
+          id="camera"
+          position="0 0 0"
+          look-controls="enabled: false"
+          wasd-controls="enabled: false"
+        ></a-camera>
+
+        <!-- Reticule de visee au sol (suit le centre de l'ecran via hitTest). -->
+        <a-entity id="reticle" ground-reticle visible="false"></a-entity>
+
+        <!-- Racine du personnage : son origine est AU SOL, aux pieds du joueur.
+             C'est ce qui rend le positionnement trivialement correct. -->
+        <a-entity id="figure-root" visible="false">
+          <a-entity id="figure-shadow" contact-shadow></a-entity>
+          <a-entity id="figure" real-scale-figure></a-entity>
+        </a-entity>
+      </a-scene>
+    </template>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- HUD HTML (hors canvas : n'apparait donc PAS dans la photo capturee) -->
+    <!-- ------------------------------------------------------------------ -->
+    <div class="hud" id="hud" data-state="booting">
+      <header class="hud__top">
+        <div class="badge" id="status-badge">
+          <span class="badge__dot"></span>
+          <span id="status-text">Starting...</span>
+        </div>
+      </header>
+
+      <div class="hint" id="hint"></div>
+
+      <footer class="hud__bottom">
+        <div class="player-strip" id="player-strip"></div>
+
+        <div class="controls">
+          <button class="btn btn--ghost" id="btn-reset" type="button" aria-label="Remove the player" disabled>
+            Remove
+          </button>
+          <button class="shutter" id="btn-shoot" type="button" aria-label="Take a photo" disabled>
+            <span class="shutter__ring"></span>
+          </button>
+          <button class="btn btn--ghost" id="btn-recenter" type="button" aria-label="Recenter tracking">
+            Recenter
+          </button>
+        </div>
+
+        <p class="legal">XR engine by Niantic Spatial, Inc.</p>
+      </footer>
+    </div>
+
+    <div class="flash" id="flash" aria-hidden="true"></div>
+
+    <!-- Repli si navigator.share() refuse l'appel differe (Safari iOS strict). -->
+    <div class="share-fallback" id="share-fallback" hidden>
+      <img id="share-preview" alt="Captured photo" />
+      <div class="share-fallback__actions">
+        <button class="btn btn--primary" id="btn-share-now" type="button">Share</button>
+        <a class="btn btn--ghost" id="btn-download" download="kayfo-ar.jpg">Save</a>
+        <button class="btn btn--ghost" id="btn-share-close" type="button">Close</button>
+      </div>
+    </div>
+
+    <!--
+      Ecran de demarrage. Present des le premier octet du HTML, car la scene AR
+      n'est montee qu'apres `xrloaded` — et cet evenement n'arrive qu'une fois
+      xr.js (1 Mo) ET xr-slam.js (5,5 Mo) telecharges. Pendant toute cette
+      phase, aucun ecran de chargement 8th Wall n'existe encore : sans ce bloc,
+      l'utilisateur fait face a un ecran fige sans aucun retour.
+    -->
+    <div class="boot" id="boot">
+      <div class="boot__spinner" aria-hidden="true"></div>
+      <h1 class="boot__title" id="boot-title">Loading AR engine</h1>
+      <p class="boot__sub" id="boot-sub">
+        First load: about 6.5 MB. Later loads will be near-instant.
+      </p>
+      <ol class="boot__steps" id="boot-steps">
+        <li data-step="engine">AR engine</li>
+        <li data-step="scene">3D scene</li>
+        <li data-step="camera">Camera</li>
+        <li data-step="scale">Scale</li>
+      </ol>
+      <p class="boot__elapsed" id="boot-elapsed"></p>
+      <pre class="boot__log" id="boot-log" hidden></pre>
+    </div>
+
+    <!--
+      Chien de garde. Volontairement en script CLASSIQUE et inline : il doit
+      survivre a la panne qu'il diagnostique.
+
+      Si les bundles renvoient 404, `AFRAME` est absent ; or nos composants
+      appellent AFRAME.registerComponent() au niveau module. L'evaluation de
+      notre bundle echoue donc immediatement, boot() n'est jamais atteint, et
+      l'ecran de demarrage tourne indefiniment sans un mot. Idem si c'est notre
+      propre bundle qui manque.
+
+      Ce bloc ne depend d'aucun autre fichier : il verifie apres coup que le
+      demarrage a bien eu lieu, et nomme precisement ce qui manque sinon.
+    -->
+    <script>
+      ;(function () {
+        var check = function () {
+          if (window.__kayfoBooted) return
+
+          var missing = []
+          if (!window.AFRAME) missing.push('A-Frame')
+          if (!window.XRExtras) missing.push('XRExtras')
+          if (!window.LandingPage) missing.push('LandingPage')
+          if (!window.CoachingOverlay) missing.push('CoachingOverlay')
+
+          var boot = document.getElementById('boot')
+          var title = document.getElementById('boot-title')
+          var sub = document.getElementById('boot-sub')
+          var log = document.getElementById('boot-log')
+          if (!boot || !title) return
+
+          boot.dataset.state = 'error'
+          boot.hidden = false
+
+          if (missing.length) {
+            title.textContent = 'Files not found'
+            sub.textContent =
+              'The browser could not load: ' +
+              missing.join(', ') +
+              '. Serve the `dist` folder from the site root (npm run preview), ' +
+              'not from a subfolder or by double-clicking index.html.'
+          } else {
+            title.textContent = 'Startup did not complete'
+            sub.textContent =
+              'The libraries loaded but the app script did not run. ' +
+              'Open the browser console for details.'
+          }
+
+          if (log) {
+            log.hidden = false
+            log.textContent =
+              'page: ' + location.href + '\n' +
+              'AFRAME: ' + !!window.AFRAME + '\n' +
+              'XR8: ' + !!window.XR8 + '\n' +
+              'XRExtras: ' + !!window.XRExtras + '\n' +
+              'LandingPage: ' + !!window.LandingPage + '\n' +
+              'CoachingOverlay: ' + !!window.CoachingOverlay + '\n' +
+              'load error: ' + (window.__vendorLoadError || 'none reported')
+          }
+        }
+
+        // 2,5 s apres DOMContentLoaded : les scripts synchrones ont forcement
+        // abouti ou echoue, et notre module a eu le temps de s'evaluer.
+        // (XR8 est exclu du test : son chargement est asynchrone et long.)
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(check, 2500)
+          })
+        } else {
+          setTimeout(check, 2500)
+        }
+      })()
+    </script>
+  </body>
+</html>

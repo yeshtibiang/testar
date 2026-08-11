@@ -1,0 +1,36 @@
+Images des personnages
+======================
+
+Deposez ici vos PNG detoures (fond transparent), puis declarez-les dans
+src/players.js avec leur TAILLE REELLE en metres.
+
+Ce que l'app fait automatiquement
+---------------------------------
+Au chargement, elle mesure la bounding box des pixels reellement opaques et
+recadre dessus. Les marges transparentes de votre PNG n'ont donc aucune
+influence sur l'echelle : seule la valeur `heightMeters` compte.
+
+Recommandations pour un rendu credible
+--------------------------------------
+1. Le sujet doit etre debout, de face, photographie au telephoto plutot qu'au
+   grand-angle (moins de deformation de perspective).
+2. Le detourage doit s'arreter EXACTEMENT a la semelle des chaussures.
+   Si vous conservez une ombre portee sous les pieds, renseignez `feetInset`
+   dans src/players.js (fraction basse du decoupage qui n'est pas le joueur).
+3. Pas de socle, pas de cadre, pas de signature dans le PNG : tout pixel opaque
+   agrandit la bounding box et fausse l'echelle.
+4. Resolution utile : ~1000 x 2600 px suffit. Au-dela, le cout de decodage sur
+   mobile augmente sans gain visible.
+5. Preferez un contour legerement adouci (1-2 px) : le materiau utilise
+   alphaTest 0.02, un contour dur produit un escalier visible de pres.
+
+Verifier l'echelle
+------------------
+`CONFIG.debugScale` (src/config.js) affiche la hauteur camera en metres.
+Tenu a hauteur de poitrine, un telephone doit indiquer environ 1,40-1,60 m.
+Si la valeur est absurde, l'echelle absolue n'est pas encore calibree :
+avancez et reculez le telephone jusqu'a la disparition de l'overlay.
+
+Le fichier `placeholder.png` fourni est une silhouette de 1,80 m graduee tous
+les 50 cm : posez-la a cote d'une porte (2,04 m en general) ou d'une personne
+pour valider le calibrage d'un coup d'oeil.
