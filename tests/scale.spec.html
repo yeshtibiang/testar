@@ -16,13 +16,11 @@
     <a-scene embedded vr-mode-ui="enabled: false" loading-screen="enabled: false">
       <a-entity id="figure" real-scale-figure></a-entity>
       <a-entity id="shadow" contact-shadow></a-entity>
-      <a-entity id="reticle" ground-reticle="active: false"></a-entity>
     </a-scene>
 
     <script type="module">
       import '/src/components/real-scale-figure.js'
       import '/src/components/contact-shadow.js'
-      import '/src/components/ground-reticle.js'
       import {pickGroundHit, createFloorEstimator} from '/src/lib/hit-test.js'
       import {setCorrection} from '/src/lib/scale.js'
 
@@ -155,15 +153,46 @@
         check('findGroundHit : aucun hit nulle part -> null', findGroundHit(0.1, 0.1, 0) === null)
         delete window.XR8
 
-        // 13. Le reticule subit la MEME correction que le personnage. Sinon il
-        // afficherait une taille fausse au moment precis ou on s'en sert comme
-        // repere pour juger celle du personnage.
-        const reticle = document.getElementById('reticle')
-        const ringScale = () => reticle.getObject3D('mesh').scale.x
-        check('reticule non corrige = 0.45 m', near(ringScale(), 0.45), ringScale())
-        reticle.setAttribute('ground-reticle', 'correction', 0.5)
-        check('reticule corrige x0.5 = 0.225 m', near(ringScale(), 0.225), ringScale())
-        reticle.setAttribute('ground-reticle', 'correction', 1)
+        // 13. intersectFloorPlane : remplace le hitTest une fois floor.level
+        // connu -> pure geometrie (rayon camera/tap x plan du sol), donc
+        // insensible a la texture du sol a l'endroit precis vise. C'est ce
+        // qui rend le placement fiable sur un carrelage uni (plus de rond
+        // vert requis).
+        const {intersectFloorPlane} = await import('/src/lib/hit-test.js')
+        const THREE = AFRAME.THREE
+
+        const camDown = new THREE.PerspectiveCamera(60, 1, 0.1, 100)
+        camDown.position.set(0, 1.6, 0)
+        camDown.rotation.set(-Math.PI / 2, 0, 0) // vise droit vers le bas
+        camDown.updateMatrixWorld(true)
+        const floorHit = intersectFloorPlane(0.5, 0.5, camDown, 0)
+        check(
+          'intersectFloorPlane : vise droit vers le bas -> atterrit au niveau du sol',
+          floorHit && near(floorHit.position.y, 0, 1e-3),
+          floorHit && floorHit.position.y
+        )
+        check(
+          'intersectFloorPlane : atterrit juste sous la camera (x,z ~ 0)',
+          floorHit && near(Math.hypot(floorHit.position.x, floorHit.position.z), 0, 1e-3),
+          floorHit && floorHit.position
+        )
+
+        const camLevel = new THREE.PerspectiveCamera(60, 1, 0.1, 100)
+        camLevel.position.set(0, 1.6, 0) // orientation par defaut : horizontale (-Z)
+        camLevel.updateMatrixWorld(true)
+        check(
+          'intersectFloorPlane : vise a l\'horizontale (au-dessus du sol) -> null',
+          intersectFloorPlane(0.5, 0.5, camLevel, 0) === null
+        )
+
+        const camFar = new THREE.PerspectiveCamera(60, 1, 0.1, 200)
+        camFar.position.set(0, 1.6, 0)
+        camFar.rotation.set(-Math.PI / 2, 0, 0)
+        camFar.updateMatrixWorld(true)
+        check(
+          'intersectFloorPlane : sol au-dela de maxPlacementDistance -> null',
+          intersectFloorPlane(0.5, 0.5, camFar, -50) === null
+        )
 
         // 14. Les seuils de distance suivent `correction` (src/lib/scale.js) :
         // sinon un moteur a k=0.5 exigerait 1,2 m reels la ou la config
@@ -172,7 +201,7 @@
         // main par comparaison visuelle. Ce test verifie seulement que la
         // conversion metres-reels -> unites-de-scene fonctionne, quelle que
         // soit l'origine du chiffre.
-        const {m: toScene, reticleDiameterFor} = await import('/src/lib/scale.js')
+        const {m: toScene} = await import('/src/lib/scale.js')
         setCorrection(0.5)
         check('seuil 0.6 m reel -> 0.30 unite de scene', near(toScene(0.6), 0.3), toScene(0.6))
         // Un hit 0,40 unite sous la camera = 0,80 m reel : accepte a k=0.5,
@@ -181,15 +210,6 @@
         check('hit accepte grace au seuil converti', pickGroundHit(lowHit, 1.0) !== null)
         setCorrection(1)
         check('hit rejete sans conversion (k=1)', pickGroundHit(lowHit, 1.0) === null)
-
-        // 15. Le reticule suit la taille du JOUEUR SELECTIONNE, pas une valeur
-        // unique : un joueur de 1,80 m (le repere) donne le diametre de base
-        // 0,45 m ; un joueur deux fois plus grand ou plus petit voit son
-        // reticule mis a l'echelle proportionnellement.
-        check('reticule pour 1.80 m = 0.45 m (base)', near(reticleDiameterFor(1.8), 0.45), reticleDiameterFor(1.8))
-        check('reticule pour 0.90 m = 0.225 m', near(reticleDiameterFor(0.9), 0.225), reticleDiameterFor(0.9))
-        check('reticule pour 3.60 m = 0.90 m', near(reticleDiameterFor(3.6), 0.9), reticleDiameterFor(3.6))
-        check('reticule : hauteur invalide -> repli sur la base', near(reticleDiameterFor(NaN), 0.45), reticleDiameterFor(NaN))
 
         window.__RESULTS__ = results
       }

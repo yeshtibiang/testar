@@ -24,6 +24,31 @@ body {
   user-select: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
+
+  /* ------------------------------------------------------------------
+     Zoom au double-tap : la SEULE parade qui marche encore sur iPhone.
+
+     `user-scalable=no` et `maximum-scale=1` sont dans le viewport
+     (index.html) mais Safari iOS les IGNORE deliberement depuis iOS 10,
+     pour raisons d'accessibilite. Resultat : deux appuis rapides sur les
+     boutons ± de taille — exactement le geste qu'ils appellent — etaient
+     interpretes comme un double-tap et zoomaient la page.
+
+     `manipulation` = `auto` moins le double-tap-zoom. Le tap simple, le
+     defilement et le pincement restent intacts ; seul le zoom au
+     double-tap disparait.
+
+     Pose ici sur <html>/<body> et pas seulement sur les boutons : la
+     valeur effective d'un geste est l'INTERSECTION des touch-action de
+     la cible et de ses ancetres, donc une regle a la racine couvre aussi
+     le second appui qui rate le bouton de quelques pixels et retombe sur
+     la pilule .size-adjust ou sur le fond du HUD. Cible par cible, ces
+     trous auraient laisse le zoom revenir.
+
+     Le canvas AR garde `touch-action: none` (regle suivante), plus
+     stricte : l'intersection le laisse inchange.
+     ------------------------------------------------------------------ */
+  touch-action: manipulation;
 }
 
 a-scene,
@@ -172,6 +197,83 @@ canvas.a-canvas {
   font-variant-numeric: tabular-nums;
 }
 
+/* -------------------------------------------------------- correction taille */
+
+.size-adjust {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(4, 20, 12, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.size-adjust[hidden] {
+  display: none;
+}
+
+.size-adjust__btn {
+  position: relative; /* reference du pseudo-element de zone tactile ci-dessous */
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* -------------------------------------------------------------------------
+   Zone tactile de 44 x 44 px — minimum recommande par Apple (HIG), alors que
+   la pastille n'en fait que 30. Le geste vise ici est l'appui REPETE : chaque
+   tap rate deborde sur la pilule, et un tap rate sur deux appuis rapproches
+   fait perdre l'increment.
+
+   Etendue par un pseudo-element transparent centre plutot qu'en agrandissant
+   width/height : le visuel de 30 px est conserve, et la pilule ne grandit pas
+   (elle ferait alors 56 px de haut, ce qui la mettrait au meme poids visuel
+   que les boutons Remove / Recenter alors qu'elle est secondaire).
+
+   Geometrie verifiee : le pseudo deborde de 7 px de chaque cote. Vers le
+   centre il s'arrete a 3 px du label « Size » (gap de 10 px), les deux zones
+   ne se recouvrent donc pas. Verticalement il tombe pile sur le bord de la
+   pilule (6 px de padding + 1 px de bordure = 7 px), qui mesure justement
+   30 + 12 + 2 = 44 px de haut : rien ne deborde. Toucher a `gap`, au
+   `padding`/`border` de .size-adjust ou a la taille du label demande de
+   revalider ces marges.
+   ------------------------------------------------------------------------- */
+.size-adjust__btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  /* Purement tactile : aucun rendu. */
+}
+
+.size-adjust__btn:active {
+  background: rgba(142, 245, 181, 0.22);
+}
+
+.size-adjust__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
+}
+
 /* ---------------------------------------------------------------- controles */
 
 .controls {
@@ -186,6 +288,19 @@ canvas.a-canvas {
 
 .btn {
   flex: 1 1 0;
+
+  /* Zone tactile de 44 px de haut (minimum recommande par Apple), contre ~40
+     px auparavant. `min-height` plutot qu'un padding vertical recalcule : avec
+     `font: inherit`, le line-height vaut `normal`, dont la valeur exacte varie
+     selon le moteur et la police reellement chargee — la hauteur finale
+     n'etait donc pas garantie. `box-sizing: border-box` etant global (regle
+     `*` en haut du fichier), ces 44 px sont bien la hauteur totale, bordure
+     comprise. Le padding vertical reste en filet si un libelle passe a la
+     ligne. */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 11px 12px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -402,7 +517,13 @@ canvas.a-canvas {
 .boot {
   position: fixed;
   inset: 0;
-  z-index: 2000; /* au-dessus des overlays 8th Wall (max ~1300) */
+  /* Au-dessus des overlays 8th Wall (max ~1300) — legitime UNIQUEMENT pendant
+     le telechargement du moteur, ou aucun d'entre eux n'existe encore.
+     Des que la scene est montee, main.js appelle screen.release() : sans ca,
+     ce bloc recouvre la boite de permission capteurs du moteur (z-index 888)
+     et la camera ne peut plus demarrer sur iOS. Ne pas rendre cet ecran
+     persistant sans relire le commentaire de src/ui/boot-screen.js. */
+  z-index: 2000;
   display: flex;
   flex-direction: column;
   align-items: center;

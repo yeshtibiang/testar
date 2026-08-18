@@ -1,7 +1,7 @@
 import {CONFIG} from '../config.js'
 import {PLAYERS, DEFAULT_PLAYER_ID, getPlayer} from '../players.js'
 import {getCameraWorldY} from '../lib/hit-test.js'
-import {setCorrection, reticleDiameterFor} from '../lib/scale.js'
+import {setCorrection} from '../lib/scale.js'
 import {
   configureScreenshots,
   takeScreenshot,
@@ -26,7 +26,7 @@ const MESSAGES = {
     // jargon "calibration"/"echelle" cote utilisateur, demande explicite).
     hint: 'Move your phone slowly forward and backward',
   },
-  ready: {label: 'Ready', hint: 'Aim at the ground, then tap to place the player'},
+  ready: {label: 'Ready', hint: 'Tap the floor to place the player'},
   placed: {label: 'Player placed', hint: 'Tap elsewhere to move it · step back to fit it in frame'},
 }
 
@@ -37,6 +37,9 @@ export function initHud(sceneEl) {
     badge: document.getElementById('status-badge'),
     hint: document.getElementById('hint'),
     strip: document.getElementById('player-strip'),
+    sizeAdjust: document.getElementById('size-adjust'),
+    sizeMinus: document.getElementById('btn-size-minus'),
+    sizePlus: document.getElementById('btn-size-plus'),
     shoot: document.getElementById('btn-shoot'),
     reset: document.getElementById('btn-reset'),
     recenter: document.getElementById('btn-recenter'),
@@ -49,7 +52,6 @@ export function initHud(sceneEl) {
   }
 
   const figureEl = document.getElementById('figure')
-  const reticleEl = document.getElementById('reticle')
   const director = () => sceneEl.components['ar-director']
 
   let state = 'booting'
@@ -72,14 +74,18 @@ export function initHud(sceneEl) {
   // que changer de joueur ne fasse pas perdre le reglage en cours de session.
   let scaleCorrection = CONFIG.slamScaleCorrection
 
-  // La correction s'applique au personnage ET au reticule : le reticule fait
-  // 0,45 m et sert de repere visuel, il doit donc subir exactement la meme
-  // correction, sinon il indiquerait une taille fausse au moment ou on s'en
-  // sert pour juger celle du personnage.
   const applyCorrection = () => {
     setCorrection(scaleCorrection)
     figureEl.setAttribute('real-scale-figure', 'correction', scaleCorrection)
-    if (reticleEl) reticleEl.setAttribute('ground-reticle', 'correction', scaleCorrection)
+  }
+
+  // Pas de la correction visible (boutons − / +, voir plus bas) : multiplicatif
+  // pour rester coherent avec le panneau ?calibrate (un pas de 5% a un sens
+  // constant que la correction courante soit 0,4 ou 2,5).
+  const SIZE_STEP = 0.05
+  const nudgeSize = (direction) => {
+    scaleCorrection = Math.max(0.05, scaleCorrection * (1 + direction * SIZE_STEP))
+    applyCorrection()
   }
 
   const applyPlayer = (id) => {
@@ -92,10 +98,6 @@ export function initHud(sceneEl) {
       feetInset: p.feetInset ?? 0,
       correction: scaleCorrection,
     })
-    // Le reticule suit la taille du joueur SELECTIONNE (voir reticleDiameterFor) :
-    // un joueur de 1,50 m et un joueur de 2,00 m n'occupent pas le meme
-    // encombrement au sol, le repere visuel doit rester honnete pour chacun.
-    if (reticleEl) reticleEl.setAttribute('ground-reticle', 'diameter', reticleDiameterFor(p.heightMeters))
     if (el.strip) [...el.strip.children].forEach((b) => b.classList.toggle('is-active', b.dataset.id === p.id))
     applyCorrection()
   }
@@ -129,6 +131,8 @@ export function initHud(sceneEl) {
     el.hint.textContent = msg.hint
     el.shoot.disabled = state !== 'placed' || busy
     el.reset.disabled = state !== 'placed'
+    // Rien a corriger tant que le joueur n'est pas pose.
+    if (el.sizeAdjust) el.sizeAdjust.hidden = state !== 'placed'
   }
 
   sceneEl.addEventListener('ar-state', (e) => {
@@ -138,7 +142,8 @@ export function initHud(sceneEl) {
 
   const REJECT_REASONS = {
     tracking: 'Tracking not stable yet — move your phone',
-    'no-surface': 'No surface detected here — aim at a textured floor',
+    'no-surface': 'Still finding the floor — move around a little and try again',
+    'above-horizon': 'Aim lower, toward the floor',
   }
   sceneEl.addEventListener('ar-place-rejected', (e) => {
     flashHint(REJECT_REASONS[e.detail.reason] || REJECT_REASONS['no-surface'])
@@ -188,19 +193,23 @@ export function initHud(sceneEl) {
     // recenter() relance l'estimation de pose sans redemarrer la camera.
     if (window.XR8 && window.XR8.XrController) window.XR8.XrController.recenter()
     const d = director()
-    if (d) d.clear()
+    // Le repere monde change reellement ici : contrairement a Remove, la
+    // hauteur de sol connue doit etre invalidee (voir ar-director.resetFloor).
+    if (d) {
+      d.resetFloor()
+      d.clear()
+    }
     flashHint('Tracking reset — move your phone to recalibrate')
   })
+
+  el.sizeMinus.addEventListener('click', () => nudgeSize(-1))
+  el.sizePlus.addEventListener('click', () => nudgeSize(1))
 
   el.shoot.addEventListener('click', async () => {
     if (busy) return
     busy = true
     render()
     triggerFlash()
-
-    // Le reticule est dans la scene 3D : il apparaitrait donc sur la photo.
-    reticleEl.setAttribute('ground-reticle', 'active', false)
-    reticleEl.object3D.visible = false
     await nextFrame()
 
     try {
@@ -218,7 +227,6 @@ export function initHud(sceneEl) {
       console.error('[kayfo-ar]', err)
       flashHint('Capture failed — try again')
     } finally {
-      reticleEl.setAttribute('ground-reticle', 'active', state === 'placed' || state === 'ready')
       busy = false
       render()
     }
@@ -267,26 +275,23 @@ export function initHud(sceneEl) {
     releasePending()
   }
 
-  // -- panneau d'ajustement de taille (?calibrate) ---------------------------
+  // -- panneau d'ajustement de taille fin (?calibrate) -----------------------
   //
-  // Outil de terrain/support, cache derriere ?calibrate — pas un controle
-  // grand public.
+  // Outil de terrain/support, cache derriere ?calibrate — en complement des
+  // boutons − / + toujours accessibles dans le HUD normal (voir nudgeSize
+  // ci-dessus, pas 5% par tap). Celui-ci offre des pas plus fins (±2%/±10%)
+  // et une valeur numerique affichee, utile en diagnostic.
   //
-  // Sans ce panneau, l'app fait entierement confiance a
-  // `xrweb="scale: absolute"` + `CONFIG.slamScaleCorrection` (defaut neutre :
-  // 1). C'est le comportement voulu — les elements (joueur, reticule) sont
-  // dimensionnes uniquement a partir de donnees reelles (heightMeters du
-  // joueur choisi, voir reticleDiameterFor ci-dessus), pas d'un fudge factor
-  // ajuste a la main a chaque session.
-  //
-  // MAIS : on a mesure sur le terrain que le biais d'echelle du SLAM
-  // monoculaire de 8th Wall varie reellement d'une session a l'autre, meme
-  // dans des conditions similaires (lectures "camera : X m" observees :
-  // 0,65 / 0,76 / 0,20-0,50 / 0,90 / 0,20 / 0,42 m). C'est une limite du
-  // moteur, pas un bug de cette app (le pipeline de dimensionnement a ete
-  // audite : aucune conversion d'unite erronee trouvee, voir README). Sans
-  // panneau visible, un operateur qui constate un joueur mal dimensionne n'a
-  // plus de recours en direct — seule option : rouvrir avec ?calibrate.
+  // Par defaut (`CONFIG.slamScaleCorrection = 1`), l'app fait entierement
+  // confiance a `xrweb="scale: absolute"` — le joueur est dimensionne
+  // uniquement a partir de donnees reelles (heightMeters, voir
+  // src/players.js), pas d'un fudge factor. MAIS on a mesure sur le terrain
+  // que le biais d'echelle du SLAM monoculaire de 8th Wall varie reellement
+  // d'une session a l'autre, meme dans des conditions similaires (lectures
+  // "camera : X m" observees : 0,65 / 0,76 / 0,20-0,50 / 0,90 / 0,20 /
+  // 0,42 m). C'est une limite du moteur, pas un bug de cette app (le
+  // pipeline de dimensionnement a ete audite : aucune conversion d'unite
+  // erronee trouvee, voir README) — d'ou la correction ajustable a la volee.
   if (new URLSearchParams(location.search).has('calibrate')) {
     const panel = document.createElement('div')
     panel.className = 'calib'

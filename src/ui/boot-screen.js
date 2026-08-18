@@ -21,6 +21,21 @@
 // Cet ecran comble exactement ce trou : il est present dans le HTML des le
 // premier octet, affiche l'avancement etape par etape, le temps ecoule, et
 // capture toute erreur JS pour la rendre lisible sans cable USB.
+//
+// ... ET IL DOIT S'EFFACER DES QUE LA SCENE EST MONTEE  (voir release())
+// -----------------------------------------------------
+// Il est opaque et en z-index 2000. Or, une fois `XR8.run()` lance, TOUTE
+// l'interaction de demarrage appartient a 8th Wall, sous ce niveau :
+//
+//   .prompt-box-8w              z-index  888   <- bouton "Continue" (iOS)
+//   #requestingCameraPermissions z-index 1200
+//   #cameraPermissionsErrorApple z-index 1300
+//
+// Le premier est bloquant sur iOS : `DeviceMotionEvent.requestPermission()`
+// exige un geste utilisateur, donc le moteur echoue une premiere fois (statut
+// "retry"), affiche cette boite, et n'appelle getUserMedia qu'apres le clic sur
+// "Continue". Tant que notre ecran la recouvre, ce clic est impossible : la
+// camera ne demarre jamais et aucun evenement n'est emis.
 // ---------------------------------------------------------------------------
 
 const STEP_LABELS = ['engine', 'scene', 'camera', 'scale']
@@ -37,6 +52,7 @@ export function createBootScreen() {
   const started = performance.now()
   const lines = []
   let failed = false
+  let released = false
 
   const setStep = (name, status) => {
     const li = stepsEl && stepsEl.querySelector(`[data-step="${name}"]`)
@@ -85,6 +101,18 @@ export function createBootScreen() {
       STEP_LABELS.forEach((s, i) => setStep(s, i < idx ? 'done' : i === idx ? 'active' : ''))
       log(`step: ${name}`)
     },
+    /**
+     * Rend la main aux ecrans 8th Wall : l'overlay disparait, mais le
+     * journal et le rattrapage d'erreurs restent actifs (fail() peut donc le
+     * faire revenir). A appeler des que la scene est montee — a partir de la,
+     * c'est `xrextras-loading` qui occupe l'ecran, et la boite de permission
+     * du moteur doit pouvoir etre touchee. Voir l'en-tete de ce fichier.
+     */
+    release() {
+      released = true
+      root.hidden = true
+      log('ecran de demarrage efface : la main passe aux ecrans 8th Wall')
+    },
     fail(message) {
       failed = true
       clearInterval(timer)
@@ -93,6 +121,9 @@ export function createBootScreen() {
       subEl.textContent = message
       elapsedEl.textContent = ''
       if (logEl) logEl.hidden = false
+      // Un echec survenu APRES release() doit redevenir visible : c'est le seul
+      // endroit ou l'utilisateur lira le diagnostic.
+      root.hidden = false
       log(`FAILED: ${message}`)
     },
     hide() {
@@ -100,6 +131,9 @@ export function createBootScreen() {
       window.removeEventListener('error', onError)
       window.removeEventListener('unhandledrejection', onError)
       root.hidden = true
+    },
+    get released() {
+      return released
     },
   }
 }

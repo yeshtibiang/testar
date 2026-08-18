@@ -17,7 +17,6 @@
 
 import './components/real-scale-figure.js'
 import './components/contact-shadow.js'
-import './components/ground-reticle.js'
 import './components/ar-director.js'
 
 import {createBootScreen} from './ui/boot-screen.js'
@@ -162,18 +161,19 @@ const describeDevice = (boot) => {
   }
 }
 
-const wireSceneEvents = (scene, boot) => {
-  // Le reticule reste actif apres le placement : c'est lui qui permet de viser
-  // la nouvelle zone de sol quand on veut deplacer le joueur. Il est masque
-  // ponctuellement pendant la capture (voir ui/hud.js).
-  scene.addEventListener('ar-state', (e) => {
-    const reticle = document.getElementById('reticle')
-    if (!reticle) return
-    const visible = e.detail.state === 'ready' || e.detail.state === 'placed'
-    reticle.setAttribute('ground-reticle', 'active', visible)
-  })
+// Elements que le moteur cree A LA DEMANDE quand il lui manque un geste
+// utilisateur : la boite "Continue" des permissions capteurs (iOS) et le bouton
+// "Enter AR" du mode immersif. Leur presence signifie « en attente d'une tape »,
+// pas « en panne ». (Les ecrans d'erreur de XRExtras, eux, sont dans le DOM en
+// permanence : on ne peut pas les tester par simple presence.)
+const EIGHTHWALL_PROMPTS = '.prompt-box-8w, .immersive-enter-button-8w'
 
+const wireSceneEvents = (scene, boot) => {
   let cameraSeen = false
+  // Passe a true des que 8th Wall prend la main sur l'ecran avec un diagnostic
+  // meilleur que le notre (page "ouvrez sur mobile", ecran de permission
+  // refusee illustre). On cesse alors de le recouvrir.
+  let engineOwnsScreen = false
   scene.addEventListener('camerastatuschange', (e) => {
     const status = (e.detail || {}).status
     cameraSeen = true
@@ -189,10 +189,23 @@ const wireSceneEvents = (scene, boot) => {
   // toujours une permission bloquee au niveau du site (le navigateur ne
   // redemande pas apres un refus).
   setTimeout(() => {
-    if (cameraSeen) return
+    if (cameraSeen || engineOwnsScreen) return
+
+    // ... SAUF si le moteur attend encore un geste de l'utilisateur. Sur iOS,
+    // `DeviceMotionEvent.requestPermission()` exige un clic : le moteur affiche
+    // sa propre boite ("Continue") et ne demande la camera qu'apres. Rien n'est
+    // casse, il manque juste une tape — recouvrir cette boite par notre ecran
+    // d'erreur rendrait justement le demarrage impossible.
+    if (document.querySelector(EIGHTHWALL_PROMPTS)) {
+      boot.log('en attente de la validation des permissions (boite 8th Wall)')
+      return
+    }
+
     boot.fail(
-      'La camera n’a pas demarre. Verifiez l’autorisation camera pour ce site ' +
-        'dans les reglages du navigateur, puis rechargez la page.'
+      'La camera n’a pas demarre. Autorisez la camera pour ce site, puis ' +
+        'rechargez la page. Sur iPhone : bouton « aA » dans la barre d’adresse ' +
+        '→ Reglages du site web → Camera → Autoriser (ou Reglages → Safari → ' +
+        'Camera). Verifiez aussi qu’aucune autre application n’utilise la camera.'
     )
   }, 30000)
 
@@ -203,10 +216,26 @@ const wireSceneEvents = (scene, boot) => {
     if (detail.isDeviceBrowserSupported === false) {
       // 8th Wall affiche sa propre page "ouvrez sur mobile" : on s'efface.
       boot.log('appareil non supporte, affichage de la page d’accueil 8th Wall')
+      engineOwnsScreen = true
       boot.hide()
       return
     }
-    boot.fail((detail.error && detail.error.message) || 'Erreur du moteur AR.')
+
+    // Permission refusee : le moteur ne jette pas une Error mais un objet nu
+    // {type: 'permission', permission, status} — `message` y est indefini, on
+    // afficherait donc "Erreur du moteur AR." par-dessus l'ecran ILLUSTRE de
+    // XRExtras (#cameraPermissionsErrorApple / #motionPermissionsErrorApple),
+    // qui donne la marche a suivre exacte pour l'appareil. On lui laisse la
+    // place et on se contente de tracer.
+    const err = detail.error || {}
+    if (err.type === 'permission') {
+      boot.log(`permission refusee : ${err.permission || '?'} (${err.status || '?'})`)
+      engineOwnsScreen = true
+      boot.hide()
+      return
+    }
+
+    boot.fail(err.message || 'Erreur du moteur AR.')
   })
 }
 
@@ -239,6 +268,28 @@ const boot = async () => {
     screen.reach('camera')
     wireSceneEvents(scene, screen)
     initHud(scene)
+
+    // -------------------------------------------------------------------
+    // Passage de relais OBLIGATOIRE (bug camera iOS).
+    //
+    // A partir d'ici, la scene est montee et `xrweb` demarre le moteur : c'est
+    // 8th Wall qui possede l'ecran (son ecran de chargement, ses demandes de
+    // permission, ses pages d'erreur). Notre overlay est opaque et en z-index
+    // 2000, au-dessus de tout ce qu'il affiche.
+    //
+    // Sur iOS c'est bloquant, pas seulement genant : `requestPermission()` des
+    // capteurs de mouvement exige un geste utilisateur, donc le moteur echoue
+    // une premiere fois puis affiche une boite "Continue" (z-index 888) dont le
+    // clic declenche la seconde tentative — et seulement ensuite getUserMedia.
+    // Ecran de demarrage laisse en place = boite invisible = clic impossible =
+    // camera qui ne demarre jamais, sans le moindre evenement pour le dire.
+    // (Sur Android le probleme ne se voit pas : `requestPermission` n'y existe
+    // pas, la permission est accordee d'office et la demande camera est une
+    // popup native du navigateur, qui passe au-dessus de la page.)
+    //
+    // screen.fail() peut toujours faire revenir l'ecran si la suite echoue.
+    // -------------------------------------------------------------------
+    screen.release()
   } catch (err) {
     console.error('[kayfo-ar]', err)
     screen.fail(err.message || String(err))

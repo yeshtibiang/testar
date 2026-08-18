@@ -1,5 +1,12 @@
 import {CONFIG} from '../config.js'
-import {findGroundHit, createFloorEstimator, getCameraWorldY, hitTestReady} from '../lib/hit-test.js'
+import {
+  findGroundHit,
+  scanFloorLevel,
+  intersectFloorPlane,
+  createFloorEstimator,
+  getCameraWorldY,
+  hitTestReady,
+} from '../lib/hit-test.js'
 
 // ---------------------------------------------------------------------------
 // Chef d'orchestre de l'experience, pose sur <a-scene>.
@@ -40,7 +47,6 @@ const STATES = {
 AFRAME.registerComponent('ar-director', {
   schema: {
     figure: {type: 'selector'},
-    reticle: {type: 'selector'},
   },
 
   init() {
@@ -54,6 +60,16 @@ AFRAME.registerComponent('ar-director', {
     this._camWorld = new THREE.Vector3()
     this._pointer = null
     this._targetYaw = 0
+
+    // Balayage de fond : tant que la hauteur du sol n'est pas connue, on la
+    // cherche en continu (voir scanFloorLevel) pendant que le tracking est
+    // NORMAL — pas besoin d'attendre un tap. Une fois trouvee, ce throttle
+    // devient un no-op (this.floor.level !== null coupe court immediatement).
+    this._scanFloorThrottled = AFRAME.utils.throttleTick(
+      this.scanFloor.bind(this),
+      1000 / CONFIG.floorScanHz,
+      this
+    )
 
     this.onTrackingStatus = this.onTrackingStatus.bind(this)
     this.onPointerDown = this.onPointerDown.bind(this)
@@ -115,7 +131,7 @@ AFRAME.registerComponent('ar-director', {
   },
 
   /**
-   * Tape -> hitTest -> pose ou deplace le joueur.
+   * Tape -> position au sol -> pose ou deplace le joueur.
    * Renvoie true si le placement a reussi.
    */
   tryPlaceAt(clientX, clientY) {
@@ -125,30 +141,39 @@ AFRAME.registerComponent('ar-director', {
       return false
     }
 
-    const cameraY = getCameraWorldY(this.el.sceneEl)
     const nx = clientX / window.innerWidth
     const ny = clientY / window.innerHeight
 
-    // findGroundHit elargit deja la recherche a un petit voisinage autour du
-    // tap (voir sa doc dans hit-test.js) — indispensable car les points de
-    // feature du SLAM sont epars, pas une carte de profondeur dense.
-    let hit = findGroundHit(nx, ny, cameraY, this.floor.level)
-
-    // Dernier repli : si meme le voisinage ne trouve rien (zone tres peu
-    // texturee), on reutilise le dernier point valide sous le reticule plutot
-    // que de ne rien faire.
-    if (!hit && this.data.reticle) {
-      const reticle = this.data.reticle.components['ground-reticle']
-      if (reticle) hit = reticle.getLastHit()
-    }
-
-    if (!hit) {
-      this.el.emit('ar-place-rejected', {reason: 'no-surface'}, false)
-      return false
+    let hit
+    if (this.floor.level !== null) {
+      // Hauteur du sol deja connue (voir scanFloor) : pure geometrie, aucun
+      // hitTest ni dependance a la texture du sol a cet endroit precis.
+      hit = intersectFloorPlane(nx, ny, this.el.sceneEl.camera, this.floor.level)
+      if (!hit) {
+        this.el.emit('ar-place-rejected', {reason: 'above-horizon'}, false)
+        return false
+      }
+    } else {
+      // Sol pas encore connu : recherche localisee autour du tap (voisinage,
+      // voir findGroundHit), puis balayage large de l'ecran en dernier
+      // recours (voir scanFloorLevel) avant d'abandonner.
+      const cameraY = getCameraWorldY(this.el.sceneEl)
+      hit = findGroundHit(nx, ny, cameraY, null) || scanFloorLevel(cameraY)
+      if (!hit) {
+        this.el.emit('ar-place-rejected', {reason: 'no-surface'}, false)
+        return false
+      }
     }
 
     this.place(hit)
     return true
+  },
+
+  /** Cherche la hauteur du sol tant qu'elle n'est pas connue (voir scanFloorLevel). */
+  scanFloor() {
+    if (this.floor.level !== null || !this.trackingNormal || !hitTestReady()) return
+    const hit = scanFloorLevel(getCameraWorldY(this.el.sceneEl))
+    if (hit) this.floor.snap(hit.position.y)
   },
 
   place(hit) {
@@ -170,9 +195,20 @@ AFRAME.registerComponent('ar-director', {
     const root = this.data.figure
     if (root) root.object3D.visible = false
     this.placed = false
-    this.floor.reset()
+    // La hauteur du sol N'EST PAS reinitialisee ici : une fois connue dans la
+    // session, enlever puis reposer le joueur doit rester instantane (pure
+    // geometrie, voir tryPlaceAt), pas redemander de viser une zone texturee.
     this.setState(this.trackingNormal ? STATES.READY : STATES.CALIBRATING)
     this.el.emit('ar-cleared', {}, false)
+  },
+
+  /**
+   * Invalide la hauteur de sol connue. A utiliser uniquement quand le repere
+   * monde change reellement (bouton Recenter -> XR8.XrController.recenter()) :
+   * dans ce cas l'ancienne hauteur ne correspond plus a rien.
+   */
+  resetFloor() {
+    this.floor.reset()
   },
 
   // -- orientation ---------------------------------------------------------
@@ -193,6 +229,10 @@ AFRAME.registerComponent('ar-director', {
   },
 
   tick(time, delta) {
+    // Independant du reste : doit continuer a chercher le sol meme si rien
+    // n'est encore pose (et devient un no-op des que floor.level est connu).
+    this._scanFloorThrottled(time, delta)
+
     if (!this.placed || CONFIG.orientationMode === 'fixed') return
 
     const root = this.data.figure

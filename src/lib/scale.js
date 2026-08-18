@@ -45,21 +45,3 @@ export function setCorrection(k) {
  * rejetes, et l'utilisateur voit "aucune surface detectee" sans comprendre.
  */
 export const m = (realMeters) => realMeters * correction
-
-// Hauteur du personnage repere ("Repere 1,80 m", voir src/players.js) pour
-// laquelle le reticule vaut exactement son diametre de base. Les autres
-// joueurs recoivent un reticule mis a l'echelle proportionnellement a leur
-// propre taille reelle : un joueur de 1,50 m n'a pas le meme encombrement au
-// sol qu'un joueur de 2,00 m, le reticule doit rester un repere honnete pour
-// chacun, pas une taille unique pensee pour le repere.
-const REFERENCE_HEIGHT = 1.8
-const BASE_RETICLE_DIAMETER = 0.45 // doit rester synchronise avec le defaut du schema ground-reticle.js
-
-/**
- * Diametre du reticule (en metres, avant `correction`) pour un joueur d'une
- * hauteur reelle donnee.
- */
-export function reticleDiameterFor(heightMeters) {
-  if (!Number.isFinite(heightMeters) || heightMeters <= 0) return BASE_RETICLE_DIAMETER
-  return BASE_RETICLE_DIAMETER * (heightMeters / REFERENCE_HEIGHT)
-}

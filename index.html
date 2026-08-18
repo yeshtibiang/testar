@@ -72,7 +72,7 @@
         xrextras-loading
         xrextras-runtime-error
         xrextras-pause-on-hidden
-        ar-director="figure: #figure-root; reticle: #reticle"
+        ar-director="figure: #figure-root"
         renderer="colorManagement: true; antialias: true; alpha: true"
         loading-screen="enabled: false"
         vr-mode-ui="enabled: false"
@@ -85,9 +85,6 @@
           look-controls="enabled: false"
           wasd-controls="enabled: false"
         ></a-camera>
-
-        <!-- Reticule de visee au sol (suit le centre de l'ecran via hitTest). -->
-        <a-entity id="reticle" ground-reticle visible="false"></a-entity>
 
         <!-- Racine du personnage : son origine est AU SOL, aux pieds du joueur.
              C'est ce qui rend le positionnement trivialement correct. -->
@@ -113,6 +110,18 @@
 
       <footer class="hud__bottom">
         <div class="player-strip" id="player-strip"></div>
+
+        <!-- Correction de taille en direct : visible seulement une fois le
+             joueur pose (voir hud.js render()), sinon ca n'a rien a corriger. -->
+        <div class="size-adjust" id="size-adjust" hidden>
+          <button class="size-adjust__btn" id="btn-size-minus" type="button" aria-label="Make the player smaller">
+            &minus;
+          </button>
+          <span class="size-adjust__label">Size</span>
+          <button class="size-adjust__btn" id="btn-size-plus" type="button" aria-label="Make the player bigger">
+            +
+          </button>
+        </div>
 
         <div class="controls">
           <button class="btn btn--ghost" id="btn-reset" type="button" aria-label="Remove the player" disabled>

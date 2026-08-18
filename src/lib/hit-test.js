@@ -136,6 +136,81 @@ export function findGroundHit(nx, ny, cameraY, floorY = null) {
   return null
 }
 
+// Grille fixe (pas centree sur un tap) balayant la zone de l'ecran ou le sol
+// se trouve generalement. Utilisee uniquement pour DECOUVRIR la hauteur du
+// sol une fois par session (voir scanFloorLevel) : peu importe ou exactement
+// dans cette zone le hit atterrit, seule sa hauteur nous interesse.
+const SCAN_GRID = (() => {
+  const xs = [0.2, 0.35, 0.5, 0.65, 0.8]
+  const ys = [0.55, 0.68, 0.8, 0.92]
+  const points = []
+  for (const y of ys) for (const x of xs) points.push({x, y})
+  return points
+})()
+
+/**
+ * Balaye toute la zone basse de l'ecran a la recherche de N'IMPORTE QUEL hit
+ * de sol plausible, sans se soucier de sa position exacte.
+ *
+ * POURQUOI (different de findGroundHit) : findGroundHit cherche un hit PRECIS
+ * sous un point tape, avec une toute petite marge (voisinage de quelques %).
+ * Ici, tant qu'on n'a jamais etabli la hauteur du sol, on n'a pas besoin de
+ * precision de position — seulement de LA HAUTEUR. Sur un sol tres peu
+ * texture (carrelage uni), la zone tapee peut n'avoir aucun point de feature
+ * alors qu'un coin de tapis, un pied de meuble ou un seuil de porte ailleurs
+ * a l'ecran en a. Une fois qu'un seul hit reussit ici, floor.level est connu
+ * et tous les taps suivants passent par intersectFloorPlane (pure geometrie,
+ * plus besoin du tout de hitTest).
+ */
+export function scanFloorLevel(cameraY) {
+  for (const {x, y} of SCAN_GRID) {
+    const hit = pickGroundHit(rawHitTest(x, y), cameraY, null)
+    if (hit) return hit
+  }
+  return null
+}
+
+// Reutilise entre deux appels : eviter une allocation par tap.
+const _raycaster = {v: null}
+
+/**
+ * Intersection du rayon camera -> point ecran (nx, ny normalises 0..1, y du
+ * haut vers le bas) avec le plan horizontal `y = floorY`.
+ *
+ * Remplace le hitTest SLAM une fois que la hauteur du sol est connue : ce
+ * calcul ne depend que de la pose 6DoF de la camera (fiable en continu, tant
+ * que le tracking est NORMAL) et pas du tout de la texture visible au sol a
+ * l'endroit tape. C'est ce qui rend le placement fiable sur un carrelage uni.
+ *
+ * @param {number} nx coordonnee ecran normalisee (0..1)
+ * @param {number} ny coordonnee ecran normalisee (0..1), 0 = haut
+ * @param {THREE.Camera} camera camera de la scene (`sceneEl.camera`)
+ * @param {number} floorY hauteur du sol connue, en unites de scene
+ * @returns {{position: {x:number,y:number,z:number}, type: string, distance: number}|null}
+ */
+export function intersectFloorPlane(nx, ny, camera, floorY) {
+  if (!camera || !Number.isFinite(floorY)) return null
+  if (!_raycaster.v) _raycaster.v = new AFRAME.THREE.Raycaster()
+  const raycaster = _raycaster.v
+
+  const ndcX = clamp01(nx) * 2 - 1
+  const ndcY = -(clamp01(ny) * 2 - 1)
+  raycaster.setFromCamera({x: ndcX, y: ndcY}, camera)
+
+  const dirY = raycaster.ray.direction.y
+  // Rayon horizontal ou pointant vers le haut : aucune intersection devant
+  // soi avec un plan de sol situe sous la camera (viser au-dessus de
+  // l'horizon).
+  if (dirY >= -1e-6) return null
+
+  const t = (floorY - raycaster.ray.origin.y) / dirY
+  if (!Number.isFinite(t) || t <= 0) return null
+  if (t > m(CONFIG.maxPlacementDistance)) return null
+
+  const point = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, t)
+  return {position: {x: point.x, y: point.y, z: point.z}, type: 'FLOOR_PLANE', distance: t}
+}
+
 /**
  * Estimateur du niveau du sol.
  *

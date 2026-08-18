@@ -38,12 +38,13 @@ export const CONFIG = {
   floorSnapTolerance: 0.35,
   floorSmoothing: 0.15, // 0 = fige, 1 = suit chaque mesure
 
-  // Reticule ---------------------------------------------------------------
-  reticleHitTestHz: 15,
-  // Position du hitTest du reticule en coordonnees ecran normalisees (0..1).
-  // 0.5 / 0.62 = un peu sous le centre, la ou on vise naturellement le sol.
-  reticleScreenX: 0.5,
-  reticleScreenY: 0.62,
+  // Decouverte du sol --------------------------------------------------------
+  // Frequence (Hz) du balayage de fond qui cherche la hauteur du sol tant
+  // qu'elle n'est pas connue (voir scanFloorLevel dans src/lib/hit-test.js).
+  // Devient un no-op des que floor.level est trouve : pas besoin d'aller tres
+  // vite, juste de ne pas rater l'occasion pendant que l'utilisateur bouge
+  // le telephone en phase "ready".
+  floorScanHz: 5,
 
   // Photo ------------------------------------------------------------------
   screenshot: {
@@ -104,16 +105,18 @@ export const CONFIG = {
   // approche standard, et compliquait le diagnostic sans ameliorer la
   // fiabilite mesuree sur le terrain.
   //
-  // Correction residuelle du biais d'echelle. Multiplicateur applique aux
-  // hauteurs de personnage, au diametre du reticule, ET a tous les seuils
-  // de distance ci-dessus (via src/lib/scale.js) — sans quoi un moteur qui
-  // sous-estime l'echelle rendrait `minDropBelowCamera: 0.6` equivalent a
-  // 1,2 m reels et rejetterait des hits de sol parfaitement valides.
+  // Correction residuelle du biais d'echelle. Multiplicateur applique a la
+  // hauteur du personnage ET a tous les seuils de distance ci-dessus (via
+  // src/lib/scale.js) — sans quoi un moteur qui sous-estime l'echelle
+  // rendrait `minDropBelowCamera: 0.6` equivalent a 1,2 m reels et
+  // rejetterait des hits de sol parfaitement valides.
   //
   //    NEUTRE PAR DEFAUT (1) : l'app fait entierement confiance a
-  //    `xrweb="scale: absolute"` — les elements sont dimensionnes uniquement a
+  //    `xrweb="scale: absolute"` — le personnage est dimensionne uniquement a
   //    partir de donnees reelles (heightMeters du joueur, voir
-  //    reticleDiameterFor dans src/lib/scale.js), pas d'un fudge factor.
+  //    src/players.js), pas d'un fudge factor. Ajustable en direct via les
+  //    boutons − / + du HUD (visibles une fois le joueur pose, voir
+  //    src/ui/hud.js) ou le panneau plus fin ?calibrate.
   //
   //    On a mesure sur le terrain que le biais du SLAM monoculaire de 8th Wall
   //    varie par SESSION (pas seulement par lieu/appareil) : ×0,270 mesure une
@@ -131,5 +134,5 @@ export const CONFIG = {
   //       affichee corresponde.
   //    Ne reportez le chiffre obtenu ici que s'il se retrouve de facon
   //    reproductible sur plusieurs sessions distinctes — sinon laissez 1.
-  slamScaleCorrection: 0.285,
+  slamScaleCorrection: 0.300,
 }
