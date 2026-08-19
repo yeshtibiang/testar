@@ -40,6 +40,8 @@ export function initHud(sceneEl) {
     sizeAdjust: document.getElementById('size-adjust'),
     sizeMinus: document.getElementById('btn-size-minus'),
     sizePlus: document.getElementById('btn-size-plus'),
+    sizeValue: document.getElementById('size-value'),
+    debug: document.getElementById('debug-readout'),
     shoot: document.getElementById('btn-shoot'),
     reset: document.getElementById('btn-reset'),
     recenter: document.getElementById('btn-recenter'),
@@ -77,6 +79,17 @@ export function initHud(sceneEl) {
   const applyCorrection = () => {
     setCorrection(scaleCorrection)
     figureEl.setAttribute('real-scale-figure', 'correction', scaleCorrection)
+    renderSizeValue()
+  }
+
+  // Demande explicite du testeur : voir a quelle taille reelle resultante on
+  // aboutit a chaque tap +/-, plutot qu'un pourcentage abstrait. `setAttribute`
+  // declenche `update()` -> `applyDimensions()` de facon synchrone, donc
+  // `dimensions.height` est deja a jour juste apres (voir real-scale-figure.js).
+  const renderSizeValue = () => {
+    if (!el.sizeValue) return
+    const dims = figureEl.components['real-scale-figure'] && figureEl.components['real-scale-figure'].dimensions
+    el.sizeValue.textContent = dims && Number.isFinite(dims.height) ? `${dims.height.toFixed(2)} m` : ''
   }
 
   // Pas de la correction visible (boutons − / +, voir plus bas) : multiplicatif
@@ -167,21 +180,19 @@ export function initHud(sceneEl) {
 
   // -- debug echelle --------------------------------------------------------
   //
-  // Commente pour l'instant (CONFIG.debugScale = false) : ce readout
-  // "camera : X m" reste utile en coulisses pour vérifier qu'un sol EST
-  // detecte une fois le suivi stable (une valeur qui ne bouge jamais indique
-  // un suivi qui n'accroche pas), mais n'a rien a faire sur l'ecran grand
-  // public. Le mecanisme est intact ; repasser debugScale a true dans
-  // config.js le reaffiche.
-  if (CONFIG.debugScale) {
-    const dbg = document.createElement('div')
-    dbg.className = 'debug'
-    el.hud.appendChild(dbg)
+  // Visible par defaut (CONFIG.debugScale = true) — demande explicite du
+  // testeur, qui veut voir cette lecture "camera : X m" a cote du reglage de
+  // taille pour comparer les deux. Reste aussi utile pour verifier qu'un sol
+  // EST detecte une fois le suivi stable (une valeur qui ne bouge jamais
+  // indique un suivi qui n'accroche pas). Repasser debugScale a false dans
+  // config.js le masque de nouveau (le mecanisme reste intact).
+  if (CONFIG.debugScale && el.debug) {
+    el.debug.hidden = false
     setInterval(() => {
       const y = getCameraWorldY(sceneEl)
       const val = Number.isFinite(y) ? `${y.toFixed(2)} m` : '—'
       const notYetReady = state === 'booting' || state === 'calibrating'
-      dbg.textContent = notYetReady ? `camera : ${val} (not ready yet)` : `camera : ${val}`
+      el.debug.textContent = notYetReady ? `camera : ${val} (not ready yet)` : `camera : ${val}`
     }, 400)
   }
 
@@ -199,8 +210,48 @@ export function initHud(sceneEl) {
       d.resetFloor()
       d.clear()
     }
+    resetScaleCorrection()
     flashHint('Tracking reset — move your phone to recalibrate')
   })
+
+  // Un reglage +/- fait a la main compense le biais d'echelle d'UNE session de
+  // tracking donnee (voir CONFIG.slamScaleCorrection). Recenter force une
+  // reconvergence de cette estimation : garder l'ancien reglage manuel
+  // reviendrait a l'appliquer par-dessus un biais different, ce qui peut faire
+  // ressortir le joueur bien plus gros ou plus petit qu'avant — exactement le
+  // symptome remonte par le testeur. On repart donc du neutre configure.
+  const resetScaleCorrection = () => {
+    scaleCorrection = CONFIG.slamScaleCorrection
+    applyCorrection()
+  }
+
+  // -- mitigation rotation ---------------------------------------------------
+  //
+  // Remontee testeur : tourner le telephone en paysage pour recadrer une
+  // photo fait "freak out" la taille affichee. Hypothese non verifiable dans
+  // cet environnement (pas d'appareil reel/capteurs ici) : un roulis rapide
+  // de 90° est un mouvement bien plus brusque que le lent aller-retour
+  // demande par le coaching-overlay pendant la calibration, et peut
+  // perturber la convergence de l'echelle SLAM de la meme facon qu'un
+  // Recenter. On applique donc le meme traitement par precaution — a
+  // confirmer sur le terrain avec un vrai telephone.
+  let lastRotationHandledAt = 0
+  const onDeviceRotated = () => {
+    if (state !== 'placed') return
+    const now = performance.now()
+    // screen.orientation ET orientationchange peuvent tirer tous les deux
+    // pour la meme rotation physique : on ne traite qu'une fois.
+    if (now - lastRotationHandledAt < 500) return
+    lastRotationHandledAt = now
+    resetScaleCorrection()
+    flashHint('Rotated — tap Recenter if the size looks off')
+  }
+
+  if (window.screen && window.screen.orientation) {
+    window.screen.orientation.addEventListener('change', onDeviceRotated)
+  }
+  // Filet pour les navigateurs sans screen.orientation (vieux iOS Safari).
+  window.addEventListener('orientationchange', onDeviceRotated)
 
   el.sizeMinus.addEventListener('click', () => nudgeSize(-1))
   el.sizePlus.addEventListener('click', () => nudgeSize(1))

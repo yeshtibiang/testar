@@ -73,10 +73,14 @@ grand public, sur demande :
 
 | Élément | Comment le réafficher |
 |---|---|
-| Readout de debug « camera : X m » | `CONFIG.debugScale = true` (`src/config.js`) |
 | Puces de sélection de joueur (« Repère 1,80 m » / « Joueur 1 ») | `CONFIG.showPlayerSelector = true` (`src/config.js`) |
 | Panneau d'ajustement visuel de l'échelle | déjà caché derrière `?calibrate` (voir plus haut) — inchangé |
 | Badge « VR » d'A-Frame | forcé en `display: none` dans `src/styles.css` ; retirer ce bloc CSS pour le remontrer |
+
+Le readout de debug « camera : X m » n'est plus caché : `CONFIG.debugScale`
+vaut désormais `true` par défaut, à la demande d'un testeur qui veut le
+comparer d'un coup d'œil au réglage de taille +/- (voir `src/ui/hud.js`).
+Repassez-le à `false` pour le masquer sur un écran grand public.
 
 **Sans sélecteur visible, un joueur par défaut doit être choisi.** L'app
 affiche désormais directement `CONFIG.kioskDefaultPlayerId` (par défaut

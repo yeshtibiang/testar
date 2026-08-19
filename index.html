@@ -111,13 +111,24 @@
       <footer class="hud__bottom">
         <div class="player-strip" id="player-strip"></div>
 
+        <!-- Lecture debug "camera : X m" (CONFIG.debugScale, src/ui/hud.js) —
+             juste au-dessus du reglage de taille, demande explicite du
+             testeur : pouvoir comparer les deux d'un coup d'oeil. Visible en
+             permanence (pas seulement une fois pose), utile aussi pour
+             verifier qu'un sol EST detecte pendant la calibration. -->
+        <div class="debug" id="debug-readout" hidden></div>
+
         <!-- Correction de taille en direct : visible seulement une fois le
-             joueur pose (voir hud.js render()), sinon ca n'a rien a corriger. -->
+             joueur pose (voir hud.js render()), sinon ca n'a rien a corriger.
+             #size-value affiche la hauteur reelle resultante (ex. "1.84 m"),
+             mise a jour a chaque tap +/- et a chaque changement de joueur -
+             demande explicite du testeur (voir hud.js applyCorrection). -->
         <div class="size-adjust" id="size-adjust" hidden>
           <button class="size-adjust__btn" id="btn-size-minus" type="button" aria-label="Make the player smaller">
             &minus;
           </button>
           <span class="size-adjust__label">Size</span>
+          <span class="size-adjust__value" id="size-value"></span>
           <button class="size-adjust__btn" id="btn-size-plus" type="button" aria-label="Make the player bigger">
             +
           </button>

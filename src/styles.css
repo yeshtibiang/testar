@@ -274,6 +274,18 @@ canvas.a-canvas {
   opacity: 0.7;
 }
 
+/* Hauteur reelle resultante (ex. "1.84 m"), mise a jour a chaque tap +/- —
+   voir hud.js renderSizeValue(). `min-width` evite que la pilule change de
+   largeur (et donc que les boutons bougent sous le doigt) quand le nombre de
+   chiffres varie. */
+.size-adjust__value {
+  min-width: 3.4em;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
 /* ---------------------------------------------------------------- controles */
 
 .controls {
@@ -369,16 +381,20 @@ canvas.a-canvas {
   text-align: center;
 }
 
+/* Rendu en flux dans .hud__bottom (et non plus en overlay positionne en
+   absolu) : demande du testeur de voir cette lecture juste a cote du reglage
+   de taille, voir le commentaire HTML au-dessus de #debug-readout. */
 .debug {
   pointer-events: none;
-  position: absolute;
-  top: calc(58px + var(--safe-top));
-  left: 50%;
-  transform: translateX(-50%);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   opacity: 0.6;
+  text-align: center;
   text-shadow: 0 1px 6px #000;
+}
+
+.debug[hidden] {
+  display: none;
 }
 
 /* ------------------------------------------------------------- calibration */

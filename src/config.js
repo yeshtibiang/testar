@@ -63,11 +63,13 @@ export const CONFIG = {
   // Les deux mecanismes restent intacts et se reactivent en repassant le
   // drapeau correspondant a `true`.
 
-  // Affiche "camera : X m" dans le HUD. Utile en coulisses pour verifier
+  // Affiche "camera : X m" dans le HUD, a cote du reglage de taille +/-.
+  // Passe a `true` par defaut a la demande d'un testeur, qui veut pouvoir
+  // comparer les deux d'un coup d'oeil. Reste aussi utile pour verifier
   // qu'un sol EST detecte une fois le suivi stable (une valeur qui ne bouge
   // jamais indique un suivi qui n'accroche pas) — pas pour juger ou calculer
   // une taille : voir l'historique dans src/lib/scale.js.
-  debugScale: false,
+  debugScale: true,
 
   // Affiche la bande de selection de joueur (puces en bas d'ecran). Retiree
   // de l'ecran normal a la demande : l'app affiche directement
