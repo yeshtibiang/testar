@@ -161,6 +161,21 @@
           </button>
         </div>
 
+        <!--
+          Purement decoratif, en position: absolute (voir .standee-graphic
+          dans styles.css) : ancre en bas d'ecran, sur toute la largeur,
+          juste au-dessus de .legal. Etant hors du flux, sa presence ici ne
+          deplace rien toute seule — c'est la marge dediee sur .controls
+          (styles.css) qui degage la place pour qu'elle ne recouvre pas les
+          boutons.
+        -->
+        <img class="standee-graphic" src="./images/standee_ar_graphic.png" alt="" />
+
+        <!-- Logo sponsor, meme logique que .standee-graphic : position:
+             absolute, cale au-dessus de .legal par son propre `bottom`
+             (voir .logo-collectaboks dans styles.css). -->
+        <img class="logo-collectaboks" src="./images/logo_collectaboks.png" alt="" />
+
         <p class="legal">XR engine by Niantic Spatial, Inc.</p>
       </footer>
     </div>
