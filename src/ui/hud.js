@@ -23,9 +23,10 @@ const MESSAGES = {
   calibrating: {
     label: 'Getting ready',
     // Le coaching-overlay integre a 8th Wall invite deja au mouvement
-    // avant/arriere necessaire ; ce hint reste generique expres (pas de
-    // jargon "calibration"/"echelle" cote utilisateur, demande explicite).
-    hint: 'Move your phone slowly forward and backward',
+    // avant/arriere necessaire (voir promptText sur <a-scene>, index.html) :
+    // pas de hint HUD en plus, ici ni ponctuellement (voir le garde dans
+    // flashHint() plus bas), pour eviter le doublon.
+    hint: '',
   },
   ready: {label: 'Ready', hint: 'Tap the floor to place the player'},
   placed: {label: 'Player placed', hint: 'Tap elsewhere to move it · step back to fit it in frame'},
@@ -205,6 +206,10 @@ export function initHud(sceneEl) {
 
   let hintTimer = null
   function flashHint(text) {
+    // Le coaching-overlay 8th Wall guide deja le geste pendant la
+    // calibration (voir MESSAGES.calibrating plus haut) : un hint HUD ferait
+    // doublon, meme ponctuel (Recenter, rotation en cours de calibration).
+    if (state === 'calibrating') return
     clearTimeout(hintTimer)
     el.hint.textContent = text
     el.hint.classList.add('hint--alert')
