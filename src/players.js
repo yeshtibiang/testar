@@ -52,4 +52,4 @@ export const PLAYERS = [
 
 export const DEFAULT_PLAYER_ID = PLAYERS[1].id
 
-export const getPlayer = (id) => PLAYERS.find((p) => p.id === id) || PLAYERS[0]
+export const getPlayer = (id) => PLAYERS.find((p) => p.id === id) || PLAYERS[1]

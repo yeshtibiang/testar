@@ -118,20 +118,35 @@
              verifier qu'un sol EST detecte pendant la calibration. -->
         <div class="debug" id="debug-readout" hidden></div>
 
-        <!-- Correction de taille en direct : visible seulement une fois le
-             joueur pose (voir hud.js render()), sinon ca n'a rien a corriger.
-             #size-value affiche la hauteur reelle resultante (ex. "1.84 m"),
-             mise a jour a chaque tap +/- et a chaque changement de joueur -
-             demande explicite du testeur (voir hud.js applyCorrection). -->
-        <div class="size-adjust" id="size-adjust" hidden>
-          <button class="size-adjust__btn" id="btn-size-minus" type="button" aria-label="Make the player smaller">
-            &minus;
+        <!-- Reglage de taille : replie par defaut derriere le bouton "Tweak"
+             (voir hud.js renderTweak()), pour garder l'ecran public degage
+             maintenant que la taille par defaut vient de heightMeters (voir
+             CONFIG.slamScaleCorrection). Le contenu replie reste visible
+             seulement une fois le joueur pose. -->
+        <div class="tweak" id="tweak" hidden>
+          <button
+            class="tweak__toggle"
+            id="btn-tweak-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-label="Toggle size adjustment"
+          >
+            <img class="tweak__icon" src="./images/tweak.svg" alt="" aria-hidden="true" /> Tweak
           </button>
-          <span class="size-adjust__label">Size</span>
-          <span class="size-adjust__value" id="size-value"></span>
-          <button class="size-adjust__btn" id="btn-size-plus" type="button" aria-label="Make the player bigger">
-            +
-          </button>
+
+          <!-- #size-value affiche la hauteur reelle resultante (ex. "1.84 m"),
+               mise a jour a chaque tap +/- et a chaque changement de joueur -
+               demande explicite du testeur (voir hud.js applyCorrection). -->
+          <div class="size-adjust" id="size-adjust" hidden>
+            <button class="size-adjust__btn" id="btn-size-minus" type="button" aria-label="Make the player smaller">
+              &minus;
+            </button>
+            <span class="size-adjust__label">Size</span>
+            <span class="size-adjust__value" id="size-value"></span>
+            <button class="size-adjust__btn" id="btn-size-plus" type="button" aria-label="Make the player bigger">
+              +
+            </button>
+          </div>
         </div>
 
         <div class="controls">

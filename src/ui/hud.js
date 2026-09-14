@@ -2,6 +2,7 @@ import {CONFIG} from '../config.js'
 import {PLAYERS, DEFAULT_PLAYER_ID, getPlayer} from '../players.js'
 import {getCameraWorldY} from '../lib/hit-test.js'
 import {setCorrection} from '../lib/scale.js'
+import {restartXrEngine} from '../lib/xr-engine.js'
 import {
   configureScreenshots,
   takeScreenshot,
@@ -37,6 +38,8 @@ export function initHud(sceneEl) {
     badge: document.getElementById('status-badge'),
     hint: document.getElementById('hint'),
     strip: document.getElementById('player-strip'),
+    tweak: document.getElementById('tweak'),
+    tweakToggle: document.getElementById('btn-tweak-toggle'),
     sizeAdjust: document.getElementById('size-adjust'),
     sizeMinus: document.getElementById('btn-size-minus'),
     sizePlus: document.getElementById('btn-size-plus'),
@@ -66,8 +69,15 @@ export function initHud(sceneEl) {
     ? DEFAULT_PLAYER_ID
     : getPlayer(CONFIG.kioskDefaultPlayerId).id
   let busy = false
+  // Vrai pendant le cycle XR8.stop()/XR8.run() declenche par Recenter (voir
+  // plus bas) : evite qu'un double-tap ne chevauche deux redemarrages.
+  let recenterBusy = false
   let pendingFile = null
   let pendingUrl = null
+  // Replie a chaque nouveau placement (voir listener 'ar-state' plus bas) :
+  // demande explicite de garder l'ecran degage par defaut, voir hud.js
+  // renderTweak() et #tweak dans index.html.
+  let tweakOpen = false
 
   // -- selection du joueur -------------------------------------------------
 
@@ -137,6 +147,25 @@ export function initHud(sceneEl) {
 
   // -- etats ---------------------------------------------------------------
 
+  // Panneau "Tweak" : le bouton n'existe que joueur pose (rien a regler
+  // sinon), et son contenu (#size-adjust) ne s'affiche que si l'utilisateur
+  // l'a explicitement ouvert (tweakOpen).
+  const renderTweak = () => {
+    if (!el.tweak) return
+    el.tweak.hidden = state !== 'placed'
+    if (el.sizeAdjust) el.sizeAdjust.hidden = !tweakOpen
+    if (el.tweakToggle) {
+      el.tweakToggle.setAttribute('aria-expanded', String(tweakOpen))
+      el.tweakToggle.classList.toggle('is-open', tweakOpen)
+    }
+    // renderSizeValue() lit dimensions sur le composant : si la texture du
+    // joueur est encore en train de charger au moment de l'ouverture (chargee
+    // en asynchrone, voir real-scale-figure.js build()), la derniere valeur
+    // ecrite par applyCorrection() peut etre perimee ou vide. On la rafraichit
+    // ici pour que l'ouverture du panneau montre toujours la valeur courante.
+    if (tweakOpen) renderSizeValue()
+  }
+
   const render = () => {
     const msg = MESSAGES[state] || MESSAGES.booting
     el.hud.dataset.state = state
@@ -144,12 +173,20 @@ export function initHud(sceneEl) {
     el.hint.textContent = msg.hint
     el.shoot.disabled = state !== 'placed' || busy
     el.reset.disabled = state !== 'placed'
-    // Rien a corriger tant que le joueur n'est pas pose.
-    if (el.sizeAdjust) el.sizeAdjust.hidden = state !== 'placed'
+    // Le redemarrage complet du moteur (voir restartXrEngine plus bas) prend
+    // un instant (coupure + delai + XR8.run()) : on desactive le bouton le
+    // temps du cycle. Inutile avant meme le premier demarrage de la camera
+    // (etat 'booting') : rien a redemarrer, et interrompre l'acquisition
+    // initiale serait plus risque que redemarrer un moteur deja en marche.
+    el.recenter.disabled = recenterBusy || state === 'booting'
+    renderTweak()
   }
 
   sceneEl.addEventListener('ar-state', (e) => {
     state = e.detail.state
+    // Repart replie a chaque nouveau placement plutot que de garder l'etat
+    // ouvert d'une pose a l'autre.
+    if (state !== 'placed') tweakOpen = false
     render()
   })
 
@@ -200,18 +237,33 @@ export function initHud(sceneEl) {
 
   el.reset.addEventListener('click', () => director() && director().clear())
 
-  el.recenter.addEventListener('click', () => {
-    // recenter() relance l'estimation de pose sans redemarrer la camera.
-    if (window.XR8 && window.XR8.XrController) window.XR8.XrController.recenter()
+  el.recenter.addEventListener('click', async () => {
+    if (recenterBusy) return
+    recenterBusy = true
+    render()
+
+    // Etat app d'abord, avant meme que le moteur soit effectivement coupe :
+    // retour visuel immediat (CALIBRATING) plutot que d'attendre le premier
+    // xrtrackingstatus du moteur redemarre. Voir ar-director.restart() :
+    // contrairement a Remove, la hauteur de sol connue est invalidee ici,
+    // car le repere monde va reellement changer.
     const d = director()
-    // Le repere monde change reellement ici : contrairement a Remove, la
-    // hauteur de sol connue doit etre invalidee (voir ar-director.resetFloor).
-    if (d) {
-      d.resetFloor()
-      d.clear()
-    }
+    if (d) d.restart()
     resetScaleCorrection()
-    flashHint('Tracking reset — move your phone to recalibrate')
+    flashHint('Restarting tracking — move your phone to recalibrate')
+
+    try {
+      // Redemarrage complet XR8.stop() -> XR8.run() : recenter() seul ne
+      // reinitialise ni la carte de features SLAM ni le biais d'echelle (voir
+      // src/lib/xr-engine.js pour le detail verifie dans le binaire).
+      await restartXrEngine(sceneEl)
+      // Le module de pipeline "canvasscreenshot" est retire puis recree par
+      // restartXrEngine() : on reapplique sa config (voir src/ui/photo.js).
+      configureScreenshots()
+    } finally {
+      recenterBusy = false
+      render()
+    }
   })
 
   // Un reglage +/- fait a la main compense le biais d'echelle d'UNE session de
@@ -255,6 +307,13 @@ export function initHud(sceneEl) {
 
   el.sizeMinus.addEventListener('click', () => nudgeSize(-1))
   el.sizePlus.addEventListener('click', () => nudgeSize(1))
+
+  if (el.tweakToggle) {
+    el.tweakToggle.addEventListener('click', () => {
+      tweakOpen = !tweakOpen
+      renderTweak()
+    })
+  }
 
   el.shoot.addEventListener('click', async () => {
     if (busy) return

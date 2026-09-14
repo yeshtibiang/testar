@@ -203,9 +203,36 @@ AFRAME.registerComponent('ar-director', {
   },
 
   /**
+   * Reinitialise l'etat cote app pour une nouvelle session de tracking : a
+   * utiliser uniquement quand le moteur XR8 va etre coupe puis redemarre
+   * (bouton Recenter, voir src/lib/xr-engine.js restartXrEngine() et
+   * src/ui/hud.js) — jamais pour un simple Remove (voir clear()).
+   *
+   * Contrairement a clear(), on NE lit PAS `trackingNormal` courant pour
+   * choisir l'etat d'arrivee : le moteur est sur le point d'etre coupe, donc
+   * quel que soit son statut actuel a cet instant, la seule destination
+   * sensee est CALIBRATING. Le vrai retour a READY/PLACED viendra du
+   * prochain `xrtrackingstatus` genuinement NORMAL emis par le moteur
+   * redemarre (voir onTrackingStatus ci-dessus, aucun nouveau listener
+   * requis). Forcer l'etat ici donne un retour visuel immediat au tap plutot
+   * que d'attendre cet evenement.
+   */
+  restart() {
+    const root = this.data.figure
+    if (root) root.object3D.visible = false
+    this.placed = false
+    this.resetFloor()
+    this.trackingNormal = false
+    this.setState(STATES.CALIBRATING)
+    this.el.emit('ar-cleared', {}, false)
+  },
+
+  /**
    * Invalide la hauteur de sol connue. A utiliser uniquement quand le repere
-   * monde change reellement (bouton Recenter -> XR8.XrController.recenter()) :
-   * dans ce cas l'ancienne hauteur ne correspond plus a rien.
+   * monde change reellement : aujourd'hui uniquement via restart() (bouton
+   * Recenter -> redemarrage complet du moteur XR8, voir
+   * src/lib/xr-engine.js) — dans ce cas l'ancienne hauteur ne correspond plus
+   * a rien.
    */
   resetFloor() {
     this.floor.reset()

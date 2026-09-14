@@ -116,16 +116,17 @@ export const CONFIG = {
   //    NEUTRE PAR DEFAUT (1) : l'app fait entierement confiance a
   //    `xrweb="scale: absolute"` — le personnage est dimensionne uniquement a
   //    partir de donnees reelles (heightMeters du joueur, voir
-  //    src/players.js), pas d'un fudge factor. Ajustable en direct via les
-  //    boutons − / + du HUD (visibles une fois le joueur pose, voir
-  //    src/ui/hud.js) ou le panneau plus fin ?calibrate.
+  //    src/players.js), pas d'un fudge factor. Ajustable en direct via le
+  //    panneau "Tweak" (bouton dans le HUD, voir src/ui/hud.js) ou le panneau
+  //    plus fin ?calibrate.
   //
   //    On a mesure sur le terrain que le biais du SLAM monoculaire de 8th Wall
   //    varie par SESSION (pas seulement par lieu/appareil) : ×0,270 mesure une
   //    fois par comparaison visuelle a ensuite donne un resultat correct une
   //    session, trop grand la suivante. Une constante figee ne peut donc pas
   //    generaliser de facon fiable — d'ou le retour a 1 par defaut plutot que
-  //    de re-figer une valeur qui a deja ete invalidee par ce test.
+  //    de re-figer une valeur qui a deja ete invalidee par ce test. (0,300 est
+  //    reste ici un moment suite a une session de test : remis a 1.)
   //
   //    Si un ecart de taille reapparait sur le terrain, ?calibrate (panneau
   //    cache, voir src/ui/hud.js) permet un ajustement visuel ponctuel :

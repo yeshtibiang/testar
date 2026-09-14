@@ -199,6 +199,62 @@ canvas.a-canvas {
 
 /* -------------------------------------------------------- correction taille */
 
+/* Conteneur du reglage de taille : la pilule "Tweak" toujours visible une
+   fois pose, et #size-adjust en dessous quand elle est ouverte (voir hud.js
+   renderTweak()). */
+.tweak {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tweak[hidden] {
+  display: none;
+}
+
+.tweak__toggle {
+  position: relative; /* reference du pseudo-element de zone tactile ci-dessous */
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 94, 51, 0.9);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tweak__icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.tweak__toggle.is-open {
+  border-color: #005e33;
+  background: rgba(0, 94, 51, 0.9);
+}
+
+/* Zone tactile de 44 x 44 px, meme logique que .size-adjust__btn::after plus
+   bas : le visuel de la pilule reste compact, seule la cible tactile grandit. */
+.tweak__toggle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
 .size-adjust {
   pointer-events: auto;
   display: inline-flex;
@@ -206,7 +262,7 @@ canvas.a-canvas {
   gap: 10px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(4, 20, 12, 0.62);
+  background: rgba(0, 94, 51, 0.9);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -316,7 +372,7 @@ canvas.a-canvas {
   padding: 11px 12px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(4, 20, 12, 0.6);
+  background: rgba(0, 94, 51, 0.9);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   color: #fff;
@@ -344,7 +400,7 @@ canvas.a-canvas {
   height: 74px;
   padding: 0;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.9);
+  border: 3px solid rgba(0, 94, 51, 0.9);
   background: transparent;
   cursor: pointer;
   display: grid;
@@ -356,7 +412,7 @@ canvas.a-canvas {
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: #fff;
+  background: #005e33;
   transition: transform 0.12s ease, background 0.2s ease;
 }
 
@@ -366,10 +422,6 @@ canvas.a-canvas {
 
 .shutter:disabled {
   opacity: 0.35;
-}
-
-.hud[data-state='placed'] .shutter__ring {
-  background: var(--accent);
 }
 
 .legal {
